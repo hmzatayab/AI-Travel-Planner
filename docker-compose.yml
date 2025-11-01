@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./Backend
+    container_name: travel-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./Backend/.env
+    depends_on:
+      - mongo
+    volumes:
+      - ./Backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  frontend:
+    build: ./Frontend
+    container_name: travel-frontend
+    ports:
+      - "5175:5175"
+    working_dir: /app
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+    command: npm run dev
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:3000
+
+  mongo:
+    image: mongo:7
+    container_name: travel-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
