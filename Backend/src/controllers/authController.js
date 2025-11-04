@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import crypto from "crypto"
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
@@ -10,7 +10,9 @@ export const registerUser = async (req, res) => {
     const { username, name, email, password, country, city } = req.body;
 
     if (!username || !name || !email || !password) {
-      return res.status(400).json({ message: "All required fields must be filled." });
+      return res
+        .status(400)
+        .json({ message: "All required fields must be filled." });
     }
 
     const existingEmail = await User.findOne({ email });
@@ -65,16 +67,36 @@ export const registerUser = async (req, res) => {
 
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user)
-      return res.status(400).json({ message: "Invalid email or password." });
+    const { emailOrUsername, password } = req.body;
+
+    if (!emailOrUsername || !password) {
+      return res.status(400).json({ message: "Please enter all fields." });
+    }
+
+    const user = await User.findOne({
+      $or: [{ email: emailOrUsername }, { username: emailOrUsername }],
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials." });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        message: "Your account has been blocked. Please contact support.",
+      });
+    }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid email or password." });
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials." });
+    }
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.cookie("token", token, {
       httpOnly: true,
@@ -85,14 +107,20 @@ export const loginUser = async (req, res) => {
 
     res.status(200).json({
       message: "Login successful!",
-      token,
       user: {
         id: user._id,
+        username: user.username,
         name: user.name,
         email: user.email,
+        country: user.country,
+        city: user.city,
+        subscription: user.subscription,
+        role: user.role,
       },
+      token,
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
