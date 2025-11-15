@@ -4,7 +4,6 @@ import { generateItinerary, listUserItineraries, getItineraryById } from "../con
 
 const router = express.Router();
 
-// Protected routes
 router.get("/", protect, listUserItineraries);
 router.post("/generate", protect, generateItinerary);
 router.get("/:id", protect, getItineraryById);

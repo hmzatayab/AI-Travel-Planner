@@ -1,102 +1,17 @@
 import Itinerary from "../models/itinerary.js";
 import User from "../models/user.js";
+import Plan from "../models/plan.js";
 import { callAI, extractJSON } from "../services/aiService.js";
-
-/**
- * buildPrompt: create a strict prompt that asks AI to return ONLY valid JSON
- */
-
-function buildPrompt(input) {
-  const {
-    origin,
-    destination,
-    durationDays,
-    budget,
-    preferences,
-    interests,
-    tripType,
-  } = input;
-  const prefsText = Array.isArray(preferences)
-    ? preferences.join(", ")
-    : preferences || "";
-  const interestsText = Array.isArray(interests)
-    ? interests.join(", ")
-    : interests || "";
-
-  return `
-You are an expert travel planner AI.
-
-User details:
-- Origin: ${origin || "N/A"}
-- Destination: ${destination || "N/A"}
-- Duration: ${durationDays} days
-- Trip type: ${tripType || "Standard"}
-- Budget: ${budget} (U.S. Dollars (USD $))
-- Preferences: ${prefsText}
-- Interests: ${interestsText}
-
-Your job:
-Generate a complete travel itinerary in **valid JSON format only**, following this structure:
-
-{
-  "title": string,
-  "origin": string,
-  "destination": string,
-  "durationDays": number,
-  "tripType": string,
-  "days": [
-    {
-      "dayNumber": number,
-      "title": string,
-      "activities": [
-        {
-          "place": string,
-          "description": string,
-          "startTime": string,
-          "endTime": string,
-          "estimatedCostUSD": number
-        }
-      ],
-      "meals": [string],
-      "transportNotes": string
-    }
-  ],
-  "hotelSuggestions": [
-    { "name": string, "pricePerNightUSD": number, "rating": number, "address": string, "url": string }
-  ],
-  "costBreakdownUSD": {
-    "flights": number,
-    "hotels": number,
-    "food": number,
-    "transport": number,
-    "activities": number,
-    "other": number
-  },
-  "totalEstimatedCostUSD": number
-}
-
-⚠️ Important:
-- **All prices and costs must be in U.S. Dollars (USD $)**.
-- If the local currency is different, convert it to USD at current approximate rates.
-- Do not include any explanation, markdown, or text outside the JSON.
-- Keep the JSON concise but realistic.
-- Return **valid JSON only**, with no extra text or explanation.
-Be concise but include **all fields exactly as shown in the structure**, even if some values are estimates or null.  
-You must include:
-- A realistic "costBreakdownUSD" object with numeric fields (flights, hotels, food, transport, activities, other).
-- A numeric "totalEstimatedCostUSD" (sum of all costs).  
-Respond ONLY with valid JSON (no markdown, no explanation). If any value is unknown, set it to null.
-
-`;
-}
+import { buildPrompt } from "../services/itineraryPrompt.js";
 
 export const generateItinerary = async (req, res) => {
   try {
-    // Validate auth
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+    if (!userId)
+      return res
+        .status(401)
+        .json({ success: false, message: "Unauthenticated" });
 
-    // Validate incoming body
     const {
       origin,
       destination,
@@ -110,12 +25,36 @@ export const generateItinerary = async (req, res) => {
 
     if (!durationDays || !budget || (!origin && !destination)) {
       return res.status(400).json({
+        success: false,
         message:
           "Please provide origin or destination, durationDays and budget.",
       });
     }
 
-    // Build prompt and call AI
+    const user = await User.findById(userId);
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found." });
+    if (user.isBlocked)
+      return res
+        .status(403)
+        .json({ success: false, message: "User account is blocked." });
+    if (!user.subscription || user.subscription.aiCredits < 10)
+      return res
+        .status(403)
+        .json({ success: false, message: "Insufficient AI credits." });
+
+    const currentPlan = await Plan.findById(user.subscription.planId);
+    if (!currentPlan)
+      return res
+        .status(404)
+        .json({ success: false, message: "User plan not found." });
+    if (currentPlan.aiCredits < currentPlan.creditCostPerTrip)
+      return res
+        .status(403)
+        .json({ success: false, message: "Insufficient AI credits." });
+
     const prompt = buildPrompt({
       origin,
       destination,
@@ -125,34 +64,27 @@ export const generateItinerary = async (req, res) => {
       interests,
       tripType,
     });
+
     let aiResult;
     try {
       aiResult = await callAI(prompt);
     } catch (aiErr) {
-      // If AI fails, return helpful message
-      console.error("AI Error:", aiErr);
-      return res
-        .status(502)
-        .json({ message: "AI service error", error: aiErr.message });
+      return res.status(502).json({
+        success: false,
+        message: "AI service error",
+        error: aiErr.message,
+      });
     }
 
-    // Try to get parsed JSON from AI result
-    // Try to extract valid JSON
-    let itineraryData = aiResult.parsed;
-
-    if (!itineraryData) {
-      // Retry parsing from raw response (in case AI returned markdown or invalid commas)
-      itineraryData = extractJSON(aiResult.raw);
-    }
+    let itineraryData = aiResult.parsed || extractJSON(aiResult.raw);
 
     if (!itineraryData) {
       try {
         itineraryData = JSON.parse(aiResult.raw);
-      } catch (e) {
-        console.error("❌ Failed to parse AI response as JSON:", e.message);
-        console.log("AI RAW RESPONSE:", aiResult.raw);
+      } catch {
         return res.status(500).json({
-          message: "AI returned invalid JSON. Please try again later.",
+          success: false,
+          message: "AI returned invalid JSON.",
           rawResponsePreview: aiResult.raw?.slice(0, 300) + "...",
         });
       }
@@ -171,13 +103,17 @@ export const generateItinerary = async (req, res) => {
       preferences: preferences || [],
       interests: interests || [],
       days: itineraryData.days || [],
-      hotelSuggestions: itineraryData.hotelSuggestions || [],
-      costBreakdown:
-        itineraryData.costBreakdown || itineraryData.costBreakdownUSD || {},
-      totalEstimatedCost:
-        itineraryData.totalEstimatedCost ||
-        itineraryData.totalEstimatedCostUSD ||
-        null,
+      hotelSuggestions: [],
+      flights: [],
+      costBreakdown: {
+        flights: 0,
+        hotels: 0,
+        food: 0,
+        transport: 0,
+        activities: 0,
+        other: 0,
+      },
+      totalEstimatedCost: 0,
       generatedBy: {
         modelName: process.env.OPENAI_MODEL || "openai-chat",
         modelVersion: "unknown",
@@ -190,15 +126,18 @@ export const generateItinerary = async (req, res) => {
 
     await newItinerary.save();
 
+    currentPlan.aiCredits -= currentPlan.creditCostPerTrip;
+    await currentPlan.save();
+
     return res.status(201).json({
+      success: true,
       message: "Itinerary generated and saved.",
       itinerary: newItinerary,
     });
   } catch (err) {
-    console.error(err);
     return res
       .status(500)
-      .json({ message: "Server error", error: err.message });
+      .json({ success: false, message: "Server error", error: err.message });
   }
 };
 
@@ -227,3 +166,4 @@ export const getItineraryById = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
+

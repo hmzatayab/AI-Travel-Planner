@@ -1,29 +1,42 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-
-const JWT_SECRET = process.env.JWT_SECRET;
+import User from "../models/user.js";
+import Plan from "../models/plan.js";
 
 export const registerUser = async (req, res) => {
   try {
     const { username, name, email, password, country, city } = req.body;
 
-    if (!username || !name || !email || !password) {
+    let errors = {};
+    if (!username) errors.username = "Username is required.";
+    if (!name) errors.name = "Name is required.";
+    if (!email) errors.email = "Email is required.";
+    if (!password) errors.password = "Password is required.";
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+    if (email && !emailRegex.test(email)) errors.email = "Enter a valid email.";
+    if (username && !usernameRegex.test(username))
+      errors.username =
+        "Username must be 3-30 characters, letters/numbers/_ only.";
+    if (password && password.length < 6)
+      errors.password = "Password must be at least 6 characters.";
+
+    if (Object.keys(errors).length > 0) {
       return res
         .status(400)
-        .json({ message: "All required fields must be filled." });
+        .json({ success: false, message: "Validation failed.", errors });
     }
 
-    const existingEmail = await User.findOne({ email });
-    if (existingEmail) {
-      return res.status(400).json({ message: "Email already registered." });
-    }
-
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      return res.status(400).json({ message: "Username is already taken." });
-    }
+    if (await User.findOne({ email }))
+      return res
+        .status(400)
+        .json({ success: false, message: "Email already registered." });
+    if (await User.findOne({ username }))
+      return res
+        .status(400)
+        .json({ success: false, message: "Username is already taken." });
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
@@ -35,12 +48,6 @@ export const registerUser = async (req, res) => {
       passwordHash,
       country: country || "",
       city: city || "",
-      subscription: {
-        planId: null,
-        startDate: null,
-        endDate: null,
-        status: "none",
-      },
       savedTrips: [],
       isBlocked: false,
       role: "user",
@@ -48,7 +55,36 @@ export const registerUser = async (req, res) => {
 
     await newUser.save();
 
-    res.status(201).json({
+    const defaultPlan = new Plan({
+      name: "Free Plan",
+      description: "Default free plan for new users",
+      price: 0,
+      currency: "USD",
+      durationDays: 30,
+      aiCredits: 50,
+      creditCostPerTrip: 10,
+      features: ["Basic AI trips", "Limited support"],
+      isActive: true,
+      userId: newUser._id,
+    });
+
+    await defaultPlan.save();
+
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + defaultPlan.durationDays);
+
+    newUser.subscription = {
+      planId: defaultPlan._id,
+      startDate,
+      endDate,
+      status: "active",
+    };
+
+    await newUser.save();
+
+    return res.status(201).json({
+      success: true,
       message: "User registered successfully!",
       user: {
         id: newUser._id,
@@ -61,7 +97,9 @@ export const registerUser = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error.", error: error.message });
   }
 };
 
@@ -69,28 +107,40 @@ export const loginUser = async (req, res) => {
   try {
     const { emailOrUsername, password } = req.body;
 
-    if (!emailOrUsername || !password) {
-      return res.status(400).json({ message: "Please enter all fields." });
+    let errors = {};
+
+    if (!emailOrUsername)
+      errors.emailOrUsername = "Email or username is required.";
+    if (!password) errors.password = "Password is required.";
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed.",
+        errors,
+      });
     }
 
     const user = await User.findOne({
       $or: [{ email: emailOrUsername }, { username: emailOrUsername }],
     });
 
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials." });
-    }
+    const invalidResponse = {
+      success: false,
+      message: "Invalid username or password.",
+    };
+
+    if (!user) return res.status(400).json(invalidResponse);
 
     if (user.isBlocked) {
       return res.status(403).json({
-        message: "Your account has been blocked. Please contact support.",
+        success: false,
+        message: "Your account is blocked. Please contact support.",
       });
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials." });
-    }
+    if (!isMatch) return res.status(400).json(invalidResponse);
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -105,8 +155,9 @@ export const loginUser = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.status(200).json({
-      message: "Login successful!",
+    return res.status(200).json({
+      success: true,
+      message: "Login successful.",
       user: {
         id: user._id,
         username: user.username,
@@ -120,8 +171,12 @@ export const loginUser = async (req, res) => {
       token,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Login Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong on the server.",
+      error: error.message,
+    });
   }
 };
 
@@ -202,5 +257,40 @@ export const getProfile = async (req, res) => {
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+export const getUserPlan = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated.",
+      });
+    }
+
+    const plan = await Plan.findOne({ userId });
+
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: "No plan found for this user.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User plan retrieved successfully.",
+      plan,
+    });
+  } catch (error) {
+    console.error("Get User Plan Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong on the server.",
+      error: error.message,
+    });
   }
 };

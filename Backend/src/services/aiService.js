@@ -1,4 +1,3 @@
-import fetch from "node-fetch"; // if your Node doesn't support global fetch, install node-fetch
 import process from "process";
 import OpenAI from "openai";
 
@@ -89,7 +88,7 @@ export async function callAI(prompt, options = {}) {
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     messages: [{ role: "user", content: prompt }],
     temperature: 0.7,
-    max_tokens: 1200,
+    max_tokens: 2500,
   });
 
   const raw = response.choices?.[0]?.message?.content?.trim() || "";
