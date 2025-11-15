@@ -14,25 +14,38 @@ const DaySchema = new Schema(
 
 const HotelSchema = new Schema(
   {
-    name: String,
-    pricePerNightUSD: Number,
-    rating: Number,
-    address: String,
-    url: String,
+    name: { type: String, required: true },
+    address: { type: String, required: true },
+    stars: { type: Number, default: 0 },
+    openingHours: { type: String, default: "N/A" },
+    website: { type: String, default: null },
+    facilities: { type: [String], default: [] },
+    activities: { type: [String], default: [] },
   },
   { _id: false }
 );
 
 const FlightSchema = new Schema(
   {
-    airline: String,
-    flightNumber: String,
-    from: String,
-    to: String,
-    departureTime: String,
-    arrivalTime: String,
-    priceUSD: Number,
-    duration: String,
+    flightNumber: { type: String, required: true },
+    airline: { type: String, required: true },
+    departureAirport: { type: String, required: true },
+    arrivalAirport: { type: String, required: true },
+    departureTime: { type: String, required: true },
+    arrivalTime: { type: String, required: true },
+    durationMinutes: { type: Number, default: 0 },
+    classes: {
+      economy: {
+        priceUSD: { type: Number, default: 0 },
+        mealsIncluded: { type: Boolean, default: false },
+      },
+      business: {
+        priceUSD: { type: Number, default: 0 },
+        mealsIncluded: { type: Boolean, default: false },
+      },
+    },
+    stops: { type: Number, default: 0 },
+    availableSeats: { type: Number, default: 0 },
   },
   { _id: false }
 );

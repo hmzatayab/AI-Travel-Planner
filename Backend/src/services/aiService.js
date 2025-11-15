@@ -41,6 +41,7 @@ export function extractJSON(text) {
 }
 
 
+
 /**
  * callAI: sends prompt to OpenAI Chat Completions and returns parsed JSON (or raw text).
  * - If USE_AI_SIMULATOR=true it returns a sample itinerary (for dev without API key).
