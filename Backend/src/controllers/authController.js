@@ -3,10 +3,29 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 import Plan from "../models/plan.js";
+import redis from "../utils/redis.js";
 
 export const registerUser = async (req, res) => {
   try {
-    const { username, name, email, password, country, city } = req.body;
+    const { idempotencyKey, username, name, email, password, country, city } =
+      req.body;
+
+    if (!idempotencyKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Idempotency key is required.",
+      });
+    }
+
+    const isDuplicate = await redis.get(`idem:${idempotencyKey}`);
+    if (isDuplicate) {
+      return res.status(409).json({
+        success: false,
+        message: "Duplicate request. Registration already processed.",
+      });
+    }
+
+    await redis.set(`idem:${idempotencyKey}`, "locked", "EX", 300);
 
     let errors = {};
     if (!username) errors.username = "Username is required.";
@@ -252,8 +271,18 @@ export const resetPassword = async (req, res) => {
 
 export const getProfile = async (req, res) => {
   try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+
+    const cacheKey = `user:${userId}:profile`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(JSON.parse(cached));
+    }
     const user = await User.findById(req.user.id).select("-passwordHash");
     if (!user) return res.status(404).json({ message: "User not found." });
+    await redis.set(cacheKey, JSON.stringify(user), "EX", 600);
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
@@ -271,6 +300,18 @@ export const getUserPlan = async (req, res) => {
       });
     }
 
+    const cacheKey = `user:${userId}:plan`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        message: "User plan retrieved successfully.",
+        plan: JSON.parse(cached),
+        cached: true,
+      });
+    }
+
     const plan = await Plan.findOne({ userId });
 
     if (!plan) {
@@ -279,6 +320,8 @@ export const getUserPlan = async (req, res) => {
         message: "No plan found for this user.",
       });
     }
+
+    await redis.set(cacheKey, JSON.stringify(plan), "EX", 600);
 
     return res.status(200).json({
       success: true,

@@ -19,7 +19,9 @@ Users can enter their **budget, travel duration, preferences, and interests**, a
 **Backend:** Node.js + Express.js  
 **Database:** MongoDB (Mongoose)  
 **AI Integration:** OpenAI API (or Gemini / Claude)  
+**Payment & Subscriptions:** Stripe Checkout  
 **Authentication:** JWT + bcrypt password hashing  
+**Caching:** Redis for performance & duplicate request prevention  
 
 ---
 
@@ -39,6 +41,7 @@ Users can enter their **budget, travel duration, preferences, and interests**, a
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET    | `/api/itineraries/my-plan` | Get current user subscription/plan (protected) |
+| POST    | `/api/create-checkout` | Create Stripe checkout session for subscription plan (protected, Redis caching implemented) |
 
 ### **Itinerary Routes**
 | Method | Endpoint | Description |
@@ -54,5 +57,7 @@ Users can enter their **budget, travel duration, preferences, and interests**, a
 ## 💡 Notes
 - AI credits are deducted on generating hotels or flights (5 credits each).  
 - Hotels and flights are saved directly in the itinerary document.  
+- Stripe is used for subscription payments (Gold / Silver plans).  
+- Redis caching is implemented for checkout sessions and AI requests to prevent duplicate processing and improve performance.  
 - All AI-generated data is strictly validated and stored in structured JSON.  
 - Authentication required for all itinerary and plan-related routes.  

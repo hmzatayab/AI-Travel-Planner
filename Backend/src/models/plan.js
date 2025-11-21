@@ -3,7 +3,7 @@ const { Schema } = mongoose;
 
 const PlanSchema = new Schema(
   {
-    name: { type: String, required: true, unique: true },
+    name: { type: String },
     description: { type: String, default: "" },
     price: { type: Number, default: 0 }, 
     currency: { type: String, default: "USD" },

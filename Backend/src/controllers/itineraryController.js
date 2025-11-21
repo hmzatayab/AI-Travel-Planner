@@ -1,6 +1,7 @@
 import Itinerary from "../models/itinerary.js";
 import User from "../models/user.js";
 import Plan from "../models/plan.js";
+import redis from "../utils/redis.js";
 import { callAI, extractJSON } from "../services/aiService.js";
 import {
   buildPrompt,
@@ -150,9 +151,22 @@ export const listUserItineraries = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "Unauthenticated" });
 
+    const cacheKey = `user:${userId}:itineraries`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.json({
+        itineraries: JSON.parse(cached),
+        cached: true,
+      });
+    }
+
     const items = await Itinerary.find({ userId })
       .sort({ createdAt: -1 })
       .limit(50);
+
+    await redis.set(cacheKey, JSON.stringify(items), "EX", 600);
+
     res.json({ itineraries: items });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -163,8 +177,19 @@ export const getItineraryById = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
+    if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+    const cacheKey = `itinerary:${userId}:${id}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.json({
+        itinerary: JSON.parse(cached),
+        cached: true,
+      });
+    }
     const item = await Itinerary.findOne({ _id: id, userId });
     if (!item) return res.status(404).json({ message: "Itinerary not found." });
+    await redis.set(cacheKey, JSON.stringify(item), "EX", 600);
     res.json({ itinerary: item });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -185,11 +210,13 @@ export const generateHotelsForItinerary = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Itinerary ID is required." });
 
-    const itinerary = await Itinerary.findById(itineraryId);
+    const itinerary = await Itinerary.findOne({ _id: itineraryId, userId });
     if (!itinerary)
-      return res
-        .status(404)
-        .json({ success: false, message: "Itinerary not found." });
+      return res.status(404).json({
+        success: false,
+        message: "Itinerary not found or not owned by user.",
+      });
+
     if (itinerary.userId.toString() !== userId)
       return res
         .status(403)
@@ -278,11 +305,13 @@ export const generateFlightsForItinerary = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Itinerary ID is required." });
 
-    const itinerary = await Itinerary.findById(itineraryId);
+    const itinerary = await Itinerary.findOne({ _id: itineraryId, userId });
     if (!itinerary)
-      return res
-        .status(404)
-        .json({ success: false, message: "Itinerary not found." });
+      return res.status(404).json({
+        success: false,
+        message: "Itinerary not found or not owned by user.",
+      });
+
     if (itinerary.userId.toString() !== userId)
       return res
         .status(403)
@@ -318,13 +347,11 @@ export const generateFlightsForItinerary = async (req, res) => {
     try {
       aiResult = await callAI(prompt);
     } catch (aiErr) {
-      return res
-        .status(502)
-        .json({
-          success: false,
-          message: "AI service error",
-          error: aiErr.message,
-        });
+      return res.status(502).json({
+        success: false,
+        message: "AI service error",
+        error: aiErr.message,
+      });
     }
 
     let flightData;

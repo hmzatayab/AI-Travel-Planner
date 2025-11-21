@@ -6,6 +6,7 @@ import cors from "cors";
 
 import authRoutes from "./routers/user.js";
 import itineraryRoutes from "./routers/itineraryRoutes.js";
+import paymentRoutes from "./routers/paymentRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -26,5 +27,6 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/itineraries", itineraryRoutes);
+app.use("/api/payment", paymentRoutes);
 
 export default app;
