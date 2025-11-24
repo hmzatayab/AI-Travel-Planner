@@ -53,7 +53,6 @@ const Login = () => {
         toast.error("Login failed. Please check your credentials.");
       }
     } catch (error) {
-      console.error("Login failed:", error);
       toast.error("Invalid email or password. Please try again.");
     } finally {
       setLoading(false);
@@ -143,12 +142,7 @@ const Login = () => {
 
                 <Button
                   type="submit"
-                  className="w-full bg-linear-to-r from-blue-700 to-indigo-800 
-                                    hover:from-blue-600 hover:to-indigo-700 
-                                    text-white font-semibold rounded-md py-2 
-                                    shadow-[0_4px_20px_rgba(59,130,246,0.3)]
-                                    hover:shadow-[0_6px_25px_rgba(59,130,246,0.45)]
-                                    transition-all duration-300"
+                  className="w-full bg-linear-to-r from-blue-700 to-indigo-800 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold rounded-md py-2 shadow-[0_4px_20px_rgba(59,130,246,0.3)] hover:shadow-[0_6px_25px_rgba(59,130,246,0.45)] transition-all duration-300"
                   disabled={loading}
                 >
                   {loading ? (

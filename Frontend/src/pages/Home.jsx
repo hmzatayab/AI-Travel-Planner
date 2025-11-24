@@ -8,6 +8,14 @@ function Home() {
     <>
       <div className="relative w-full h-screen overflow-hidden bg-[#060010]">
         <div className="absolute inset-0 w-full h-full z-0">
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, rgba(6,0,16,1) 0%, rgba(6,0,16,1) 30%, rgba(6,0,16,0) 100%)",
+            }}
+          />
+
           <DotGrid
             dotSize={5}
             gap={15}
@@ -22,10 +30,10 @@ function Home() {
         </div>
 
         <div className="relative z-20 mt-5">
-            <Header />
+          <Header />
         </div>
-        
-        <HeroSection/>
+
+        <HeroSection />
       </div>
     </>
   );
